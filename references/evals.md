@@ -58,6 +58,18 @@ Walk the phases; every row must name its catching step and be CAUGHT.
 | 7 | `security-audit` probes on dev and sandbox only; `test -f .agents/skills/security-audit/SKILL.md` first; no mutating probe at prod | CAUGHT |
 | 8 | Mutation families for authorization (check inverted or removed, raw role-table read instead of the tenant-membership helper, revocation of the current session only, fail-open); decision-only exit: a second static review in a fresh context, never the mutation procedure | CAUGHT |
 
-## 4. Fail handling
+## 4. Jev replays (only where the optional Jev step is installed)
+
+| Replay | Scenario | Step that must fire | Pass when |
+|---|---|---|---|
+| J1 Jev down | The key is unset (or the runner exits 4) while an Arena runs with `jev: shadow`, `jev-content: ok` | `jev_steps j1` skip list and `UNAVAILABLE` handling | it prints `jev: skipped (no key)` or marks the verdicts `na`, exits 0, and the ranking computed from `judging-*.md` is identical to a run with `jev: off` |
+| J2 High P cannot remove a judgment | A stub runner answers P = 0.99 for every verdict | phase 3 item 8: Jev adds no vote and removes no judgment | `grep -cE '^PAIR:' $B/judging-*.md` is unchanged by `j1`, and no Bradley-Terry input differs from the run without Jev |
+| J3 Breaker | The runner exits 4 twice in a row | breaker in `jev_steps` | `$E/jev/.open` exists, the remaining verdicts are `na`, the next `j1` prints `jev: skipped (breaker open)`, and the Arena continues |
+| J4 Ruling first | `j1` is run before `$E/jev/ruling.md` has a `timestamp:` line | ruling gate | exit 2 and no call; nothing in the ledger |
+| J5 Seed key order | `seeded-run` before `seeded-commit` | commitment gate | exit 2 and no `/var/tmp/olympus-arena-*` directory |
+
+Command: `python3 -m unittest discover -s tools -p 'test_*.py'` covers J1 to J5 offline.
+
+## 5. Fail handling
 
 A fail is fixed in SKILL.md or the named reference, never by relaxing the check. Re-run this file after the fix. A new real incident becomes a new row here and a new ban in `executor-brief.md` before the next card.

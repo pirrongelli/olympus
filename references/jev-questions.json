@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "active": "j1-v2",
+  "question_id": "p",
+  "state_fields": [
+    "rubric",
+    "verdict",
+    "candidate_A",
+    "candidate_B"
+  ],
+  "sha256_rule": "sha256 of the UTF-8 bytes of the wording's `questions` object serialised with sorted keys, separators (',', ':') and ensure_ascii false. tools/jev_steps.py refuses to run if any hash differs, so editing a wording means a new name and a new hash, never an in-place change.",
+  "wordings": {
+    "j1-v1": {
+      "status": "historical, not used",
+      "origin": "E1 shadow test on the K-2036 record (run_meta.py): one order, candidates described as documents checked against the repository",
+      "questions": {
+        "p": {
+          "type": "noul",
+          "instructions": "`verdict` is one judge's blind pairwise verdict between two candidate documents, scored with the rubric in `rubric`. Is this judge's verdict (its WINNER) correct, meaning a careful evaluator who checks every factual claim against the repository would pick the same winner?"
+        }
+      },
+      "sha256": "9ed0b5409717f6e09b0a784c6411e011ac94df06f50f70746519f63f466cef4c"
+    },
+    "j1-v2": {
+      "status": "active (frozen)",
+      "origin": "live Arena of the Jev panel (jev_arena.py): the candidates are named in the text; asked with both candidate orders, the verdict's A/B labels swapped with them",
+      "questions": {
+        "p": {
+          "type": "noul",
+          "instructions": "`verdict` is one judge's blind pairwise verdict between `candidate_A` and `candidate_B`, scored with `rubric`. Is this judge's verdict (its WINNER) correct, meaning a careful evaluator who checks every factual claim would pick the same winner?"
+        }
+      },
+      "sha256": "133e24c971fe94c1745fa4cc84a7d662f5423dd95bd4a503e7fd3cd15f5c967e"
+    }
+  },
+  "tie_handling": "A verdict whose WINNER is TIE is never sent to Jev: it has no P, is excluded from J1, from natural-run labels and from AUC, and is never flagged. In a seeded Arena a TIE counts as a wrong verdict (neither candidate is defect-free), has no P, and its rate is reported."
+}

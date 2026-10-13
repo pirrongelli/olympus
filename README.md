@@ -160,33 +160,42 @@ Olympus was written against one repository's agent harness. Its commands name th
 
 ```
 SKILL.md                  the skill: frontmatter + process (phases, gates, roles)
-references/               panel and executor briefs, judging protocol, reviewer briefs, commands, evals
+references/               panel and executor briefs, judging protocol, reviewer briefs, commands, evals, Jev rules
 references/domains/       domain packs
+tools/                    optional: multi-provider runner, Jev steps and calibration, with offline tests
 ```
 
 ### Optional: Jev (TypeSafe)
 
-Olympus does **not** require Jev. Everything above works without it.
+Olympus does **not** require Jev. Everything above works without it, and any Jev failure becomes `jev: UNAVAILABLE` while the process continues.
 
-[Jev](https://docs.typesafe.ai/introduction) is a decision model, not a text generator. You define the possible answers, and it returns typed answers with probabilities, as a Choice, a Score or a Noul (a yes/no probability). Several questions run in parallel in one call. That makes it a candidate for the narrow, typed judgments inside the panel process:
+[Jev](https://docs.typesafe.ai/introduction) is a decision model, not a text generator. You define the possible answers, and it returns typed answers with probabilities, as a Choice, a Score or a Noul (a yes/no probability). Olympus tested it on the K-2036 record and with a live Arena, and one use survived: a **verdict meta-check**.
 
-| Candidate step | Jev question | Why |
+| Step | Jev question | Status |
 |---|---|---|
-| Arena, as an extra judge | Choice per rubric criterion, asked twice with positions swapped | a judge from a different model family weakens the correlated-judge limitation (§7) |
-| Blocker triage | Noul: "does this BLOCK name a location, a disputed claim and a replacement?" | enforces falsifiable blockers (P4) cheaply; low-confidence cases go to the chair |
-| Stop rule | Score: how materially draft *n+1* differs from draft *n* | a cheap form of semantic early stopping (P6) |
-| Pre-mortem cross-check | Choice: CAUGHT / PARTIAL / MISSED per failure row | a second opinion beside the seat that runs the dry run |
-| Reviewer over-flagging | Noul: "does this BLOCK carry a command output, failing test or surviving mutant?" | keeps P9's evidence rule mechanical |
+| **J1 Arena verdict meta-check** | Noul per verdict: "is this verdict correct?", asked with both candidates in both orders | **SHADOW at ship** (calls and logs only); ADVISORY only after seeded calibration |
+| J2 Jev as an Arena judge | Choice | rejected: order-consistent in 3/6 pairs, and its consistent picks favoured the last-ranked proposal |
+| J3 blocker triage, J4 dry-run cross-check | Noul, Choice | rejected: 2/5 and 14/27 on the record |
+| J5 stop rule, J6 reviewer over-flagging | Score, Noul | off, would need their own shadow table |
+| J7 approval P(correct) | Noul | forbidden: Brier 0.227 against 0.149 for a constant |
 
-**Status: experimental, not yet wired into `SKILL.md`.** These steps are proposals. They will be validated in shadow mode against the labelled record of the case study (§4) before any of them becomes part of the process. Fact checks ("does this tool exist?"), code review, mutation testing and synthesis stay with commands and reasoning models. As TypeSafe's own guidance puts it, typed output guarantees the interface, not truth.
+What J1 does, in order: the President records the ruling (ranking and base choice, by blind code) first; only then does `tools/jev_steps.py j1` ask Jev about each verdict; P stays out of every vote, `judging-results.md` and DECISION.md. In ADVISORY a low P or an unstable pair (the two orders disagree by more than 0.20) can only **add** one more blind judgment from a non-author; it can never remove a check, approve anything or carry a Bradley-Terry weight. Evidence so far: AUC 0.81 on 24 verdicts labelled by mid-tier judges (about 0.63-0.99), and a live run whose 12 P values changed no ranking. That is not enough to promote, so promotion needs the pre-registered calibration below.
+
+- **Consent.** `jev: off | shadow | advisory` (default off) and `jev-content: ok | blocked` (default blocked) are asked at phase 0. A pre-send scan skips the run on key-like strings, credentials and a few domain words; it is a tripwire, not a guarantee. TypeSafe states a no-training commitment, but its retention terms are unverified, so sending anything is the owner's decision.
+- **Pin.** The adapter accepts only a pinned model (`jev-1.13.0`); `jev-latest` and `jev-preview` are rejected, the response model is checked, and the question wording is frozen with a sha256.
+- **Cost.** $0.042 per million input tokens, output free ([models](https://docs.typesafe.ai/models)): about $0.007 per Arena.
+- **Calibration.** Promotion to ADVISORY needs at least 30 independently authored seed pairs (a pair has one planted, checkable defect) from at least 2 authors and at least 20 wrong verdicts, a cluster-bootstrap AUC whose 2.5th percentile is at least 0.70 and beats the word-count baseline, and stable P across orders. The seed pack is deliberately not shipped: its answer key is committed as a hash and revealed only after the ruling. See `references/jev.md` and the recipe `references/jev-seeds.md`; `tools/jev_calibrate.py` prints PROMOTE, HOLD or RETIRE.
 
 To try it:
 
 ```
-cp .env.example .env        # .env is git-ignored; never commit it
+cp .env.example .env                                        # .env is git-ignored; never commit it
 # edit .env and set TYPESAFE_API_KEY
-pip install typesafe-sdk    # or: uv add typesafe-sdk
+cp olympus.providers.example.json olympus.providers.json    # keep the `jev` target (typesafe adapter, jev-1.13.0)
+python3 tools/olympus_call.py --target jev --brief brief.json --out out.json --dry-run
 ```
+
+No SDK is needed: the `typesafe` adapter of `tools/olympus_call.py` uses only the standard library.
 
 ### Optional: other model providers
 
@@ -196,6 +205,7 @@ Olympus does **not** require this either. By default every seat, judge and revie
 |---|---|---|
 | `openai` | OpenAI, OpenRouter, Moonshot (Kimi), and any OpenAI-compatible server through `base_url` (Ollama, vLLM, DeepSeek, Groq, Together) | `POST {base_url}/chat/completions`, Bearer key; Ollama needs no key |
 | `anthropic` | Anthropic API | `POST {base_url}/v1/messages`, `x-api-key` and `anthropic-version` headers |
+| `typesafe` | TypeSafe System One (Jev), the optional verdict meta-check above | `POST https://api.typesafe.ai/v1/systemone`, Bearer key; the brief is JSON (`state`, `questions`); pinned `jev-X.Y.Z` model only |
 | `cli` | `codex exec`, `claude -p`, any command that reads a prompt on stdin | no shell: an argv list; the CLI may use its own tools and its own login |
 
 Setup:
@@ -219,6 +229,7 @@ Replace every `<placeholder>` model id with one from the provider's own model li
 - **One case, no control group.** The case study is a single run on a single codebase. There is no comparison against a single-agent baseline or other panel sizes.
 - **Correlated judges.** All seats came from one model family. Shared training can produce correlated errors, which weakens the independence assumption behind P1 [1, 2].
 - **Chair influence.** The chair also wrote the rulings, so its own biases are not blinded. Every ruling is recorded with a reason, but the chair was not anonymised.
+- **Jev is unvalidated.** J1 ships in SHADOW. Its evidence is 24 verdicts labelled by mid-tier judges and one live Arena, and the seeded-defect calibration that could promote it (30 pairs) has not been run. It validates seeded-defect verdicts only.
 - **Cost.** A full run (6 seats, 20 rounds, 2 reviewers) is expensive. Tiering, the decision-only exit and the stop rules exist to scale it down. The run did not measure token cost precisely.
 - **Tool coupling.** The delivery phases assume a specific harness (see §6). The decision phases transfer more readily than the delivery phases.
 - **Non-stationary findings.** Several cited results are 2025–2026 preprints, and model behaviour changes quickly.

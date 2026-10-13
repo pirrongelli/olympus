@@ -4,6 +4,7 @@ Run from the repository root:  python3 -m unittest tools/test_olympus_call.py
 """
 
 import contextlib
+import hashlib
 import http.client
 import io
 import json
@@ -672,6 +673,303 @@ class OlympusCallTest(unittest.TestCase):
     def test_redact_handles_repr_and_stripped_forms(self):
         cleaned = olympus_call.redact("bad header b'Bearer sk-abc-123456\\n'", ["sk-abc-123456\n"])
         self.assertNotIn("sk-abc-123456", cleaned)
+
+    # ----------------------------------------------------------------- typesafe adapter
+
+    TS_STATE = {"rubric": "SENTINEL-RUBRIC-TEXT", "verdict": "SENTINEL-VERDICT-TEXT"}
+
+    def ts_target(self, **extra):
+        target = {"adapter": "typesafe", "model": "jev-1.13.0", "base_url": self.base, "api_key_env": "TEST_API_KEY"}
+        target.update(extra)
+        return target
+
+    def ts_brief(self, questions=None, state=None, raw=None):
+        questions = questions or {"p": {"type": "noul", "instructions": "Is the verdict correct?"}}
+        text = raw if raw is not None else json.dumps({"state": state or self.TS_STATE, "questions": questions})
+        with open(self.brief, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        return questions
+
+    def ts_ok(self, answers, model="jev-1.13.0"):
+        return (200, {}, {"model": model, "answers": answers, "usage": {"input_tokens": 296, "output_tokens": 20}})
+
+    def ts_run(self, targets=None, extra=()):
+        os.environ["TEST_API_KEY"] = FAKE_KEY
+        config = self.write_config(targets or {"j": self.ts_target()})
+        return self.run_tool("j", config, extra)
+
+    def test_typesafe_noul_success(self):
+        self.ts_brief()
+        self.server.responses = [self.ts_ok({"p": {"type": "noul", "noul": 0.62}})]
+        code, stdout, stderr = self.ts_run()
+        self.assertEqual(code, 0, stderr)
+        req = self.server.requests[0]
+        self.assertEqual(req["path"], "/v1/systemone")
+        self.assertEqual(req["headers"]["authorization"], "Bearer " + FAKE_KEY)
+        self.assertEqual(sorted(req["body"]), ["model", "questions", "state"])
+        self.assertEqual(req["body"]["model"], "jev-1.13.0")
+        self.assertEqual(json.loads(self.read(self.out))["answers"]["p"]["noul"], 0.62)
+
+    def test_typesafe_choice_success(self):
+        crit = {"first": "first is better", "second": "second is better", "tie": "equal"}
+        self.ts_brief({"w": {"type": "choice", "instructions": "Which?", "criteria": crit}})
+        self.server.responses = [self.ts_ok({"w": {"type": "choice", "choice": "second", "confidence": 0.4,
+                                                    "probabilities": {"first": 0.3, "second": 0.5, "tie": 0.2}}})]
+        code, _, stderr = self.ts_run()
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(json.loads(self.read(self.out))["answers"]["w"]["choice"], "second")
+
+    def test_typesafe_score_success(self):
+        levels = ["low", "mid", "high"]
+        self.ts_brief({"s": {"type": "score", "instructions": "How big?", "criteria": levels}})
+        self.server.responses = [self.ts_ok({"s": {"type": "score", "score": 1.43, "confidence": 0.35,
+                                                    "legend": {"0": "low", "1": "mid", "2": "high"},
+                                                    "probabilities": {"0": 0.0, "1": 0.57, "2": 0.43}}})]
+        code, _, stderr = self.ts_run()
+        self.assertEqual(code, 0, stderr)
+
+    def test_typesafe_alias_rejected(self):
+        self.ts_brief()
+        for model in ("jev-latest", "jev-preview", "jev-1.13", "jev-1.13.0-beta", "jev-1.13.0\n", "other-1.0.0", ""):
+            code, _, stderr = self.ts_run({"j": self.ts_target(model=model)})
+            self.assertEqual(code, 2, repr(model))
+        self.assertEqual(self.server.requests, [])
+
+    def test_typesafe_response_model_mismatch_exit4(self):
+        self.ts_brief()
+        self.server.responses = [self.ts_ok({"p": {"type": "noul", "noul": 0.5}}, model="jev-1.14.0")]
+        code, _, stderr = self.ts_run()
+        self.assertEqual(code, 4)
+        self.assertIn("model_mismatch", stderr)
+        self.assertFalse(os.path.exists(self.out))
+
+    def test_typesafe_invalid_brief_exit2_sends_nothing(self):
+        big = {"state": "x" * (olympus_call.TYPESAFE_MAX_BRIEF_BYTES + 1), "questions": {"p": {"type": "noul", "instructions": "q"}}}
+        q = {"type": "noul", "instructions": "q"}
+        bad = [
+            "not json",
+            json.dumps([]),
+            json.dumps({"state": "s"}),
+            json.dumps({"state": "s", "questions": {"p": q}, "extra": 1}),
+            json.dumps({"state": "", "questions": {"p": q}}),
+            json.dumps({"state": "s", "questions": {}}),
+            json.dumps({"state": "s", "questions": {"p": {"type": "rank", "instructions": "q"}}}),
+            json.dumps({"state": "s", "questions": {"p": {"type": "noul", "instructions": "  "}}}),
+            json.dumps({"state": "s", "questions": {"p": {"type": "noul", "instructions": "q", "extra": 1}}}),
+            json.dumps({"state": "s", "questions": {"p": {"type": "noul", "instructions": "q", "criteria": {"maybe": "x"}}}}),
+            json.dumps({"state": "s", "questions": {"p": {"type": "choice", "instructions": "q", "criteria": {}}}}),
+            json.dumps({"state": "s", "questions": {"p": {"type": "choice", "instructions": "q",
+                                                          "criteria": {"o%d" % i: "d" for i in range(256)}}}}),
+            json.dumps({"state": "s", "questions": {"p": {"type": "score", "instructions": "q", "criteria": ["only"]}}}),
+            json.dumps({"state": "s", "questions": {"p": {"type": "score", "instructions": "q",
+                                                          "criteria": ["l%d" % i for i in range(11)]}}}),
+            json.dumps(big),
+        ]
+        for raw in bad:
+            self.ts_brief(raw=raw)
+            code, _, stderr = self.ts_run()
+            self.assertEqual(code, 2, raw[:80])
+        self.assertEqual(self.server.requests, [])
+
+    def test_typesafe_choice_limit_255_is_accepted(self):
+        crit = {"o%d" % i: "d" for i in range(255)}
+        self.ts_brief({"w": {"type": "choice", "instructions": "q", "criteria": crit}})
+        probs = {k: 0.0 for k in crit}
+        probs["o0"] = 1.0
+        self.server.responses = [self.ts_ok({"w": {"type": "choice", "choice": "o0", "confidence": 1.0, "probabilities": probs}})]
+        self.assertEqual(self.ts_run()[0], 0)
+
+    def test_typesafe_malformed_answer_exit4(self):
+        crit = {"a": "A", "b": "B"}
+        levels = ["lo", "hi"]
+        questions = {
+            "n": {"type": "noul", "instructions": "q"},
+            "c": {"type": "choice", "instructions": "q", "criteria": crit},
+            "s": {"type": "score", "instructions": "q", "criteria": levels},
+        }
+        good = {
+            "n": {"type": "noul", "noul": 0.5},
+            "c": {"type": "choice", "choice": "a", "confidence": 0.5, "probabilities": {"a": 0.6, "b": 0.4}},
+            "s": {"type": "score", "score": 0.5, "confidence": 0.5, "legend": {"0": "lo", "1": "hi"},
+                  "probabilities": {"0": 0.5, "1": 0.5}},
+        }
+
+        def mutated(**changes):
+            answers = json.loads(json.dumps(good))
+            for key, fn in changes.items():
+                fn(answers)
+            return answers
+
+        cases = {
+            "noul above 1": mutated(a=lambda a: a["n"].__setitem__("noul", 1.2)),
+            "noul negative": mutated(a=lambda a: a["n"].__setitem__("noul", -0.1)),
+            "noul bool": mutated(a=lambda a: a["n"].__setitem__("noul", True)),
+            "noul missing": mutated(a=lambda a: a["n"].pop("noul")),
+            "choice outside criteria": mutated(a=lambda a: a["c"].__setitem__("choice", "zzz")),
+            "choice probabilities off": mutated(a=lambda a: a["c"].__setitem__("probabilities", {"a": 0.2, "b": 0.2})),
+            "choice unknown option": mutated(a=lambda a: a["c"].__setitem__("probabilities", {"a": 0.5, "q": 0.5})),
+            "score out of range": mutated(a=lambda a: a["s"].__setitem__("score", 1.5)),
+            "score legend wrong": mutated(a=lambda a: a["s"].__setitem__("legend", {"0": "lo", "1": "XX"})),
+            "score probabilities off": mutated(a=lambda a: a["s"].__setitem__("probabilities", {"0": 0.9, "1": 0.9})),
+            "wrong type": mutated(a=lambda a: a["n"].__setitem__("type", "choice")),
+            "missing id": mutated(a=lambda a: a.pop("s")),
+            "extra id": mutated(a=lambda a: a.__setitem__("zzz", {"type": "noul", "noul": 0.5})),
+        }
+        for label, answers in cases.items():
+            self.server.requests = []
+            self.ts_brief(questions)
+            self.server.responses = [self.ts_ok(answers)]
+            code, _, stderr = self.ts_run()
+            self.assertEqual(code, 4, label)
+        # the unmutated answer passes, so the cases above fail for their own reason
+        self.server.responses = [self.ts_ok(good)]
+        self.assertEqual(self.ts_run()[0], 0)
+        # non-object and missing answers keys
+        for body in ([], {"model": "jev-1.13.0"}, {"model": "jev-1.13.0", "answers": []}):
+            self.server.responses = [(200, {}, body)]
+            self.assertEqual(self.ts_run()[0], 4, body)
+
+    def test_typesafe_probability_tolerance(self):
+        crit = {"a": "A", "b": "B"}
+        self.ts_brief({"c": {"type": "choice", "instructions": "q", "criteria": crit}})
+        ok = {"c": {"type": "choice", "choice": "a", "probabilities": {"a": 0.52, "b": 0.5}}}  # sum 1.02
+        self.server.responses = [self.ts_ok(ok)]
+        self.assertEqual(self.ts_run()[0], 0)
+
+    def test_typesafe_401_and_422_fail_fast(self):
+        self.ts_brief()
+        for status in (401, 422):
+            self.server.requests = []
+            self.server.responses = [(status, {}, {"error": "nope"}), self.ts_ok({"p": {"type": "noul", "noul": 0.5}})]
+            code, _, stderr = self.ts_run()
+            self.assertEqual(code, 4)
+            self.assertEqual(len(self.server.requests), 1)
+            self.assertIn(str(status), stderr)
+        self.assertEqual(self.sleeps, [])
+
+    def test_typesafe_429_then_success(self):
+        self.ts_brief()
+        self.server.responses = [(429, {"Retry-After": "1"}, {"error": "rate"}), self.ts_ok({"p": {"type": "noul", "noul": 0.5}})]
+        code, _, stderr = self.ts_run()
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(len(self.server.requests), 2)
+        self.assertEqual(self.sleeps, [1.0])
+
+    def test_typesafe_timeout_not_retried(self):
+        self.ts_brief()
+        with mock.patch.object(olympus_call._OPENER, "open", side_effect=socket.timeout("timed out")) as opener:
+            code, _, stderr = self.ts_run()
+        self.assertEqual(code, 4)
+        self.assertEqual(opener.call_count, 1)
+        self.assertIn("timed out", stderr)
+
+    def test_typesafe_default_timeout_is_30_seconds(self):
+        self.ts_brief()
+        self.server.responses = [self.ts_ok({"p": {"type": "noul", "noul": 0.5}})]
+        seen = []
+        real_open = olympus_call._OPENER.open
+
+        def spy(request, timeout=None):
+            seen.append(timeout)
+            return real_open(request, timeout=timeout)
+
+        with mock.patch.object(olympus_call._OPENER, "open", side_effect=spy):
+            self.assertEqual(self.ts_run()[0], 0)
+        self.assertEqual(seen, [30.0])
+        # other adapters keep 600
+        os.environ["TEST_API_KEY"] = FAKE_KEY
+        self.server.responses = [openai_ok()]
+        seen.clear()
+        config = self.write_config({"t": self.openai_target()})
+        with mock.patch.object(olympus_call._OPENER, "open", side_effect=spy):
+            self.assertEqual(self.run_tool("t", config)[0], 0)
+        self.assertEqual(seen, [600.0])
+
+    def test_typesafe_timeout_flag_must_be_positive(self):
+        self.ts_brief()
+        self.assertEqual(self.ts_run(extra=["--timeout", "0"])[0], 2)
+        self.assertEqual(self.ts_run(extra=["--timeout", "-3"])[0], 2)
+
+    def test_typesafe_redirect_not_followed(self):
+        self.ts_brief()
+        self.server.responses = [(302, {"Location": self.base + "/elsewhere"}, {}), self.ts_ok({"p": {"type": "noul", "noul": 0.5}})]
+        code, _, _ = self.ts_run()
+        self.assertEqual(code, 4)
+        self.assertEqual(len(self.server.requests), 1)
+
+    def test_typesafe_missing_key_exit3_zero_requests(self):
+        self.ts_brief()
+        config = self.write_config({"j": self.ts_target()})
+        code, _, stderr = self.run_tool("j", config)
+        self.assertEqual(code, 3)
+        self.assertIn("TEST_API_KEY", stderr)
+        self.assertEqual(self.server.requests, [])
+
+    def test_typesafe_default_key_variable_is_typesafe_api_key(self):
+        self.ts_brief()
+        target = self.ts_target()
+        del target["api_key_env"]
+        os.environ.pop("TYPESAFE_API_KEY", None)
+        config = self.write_config({"j": target})
+        code, stdout, _ = self.run_tool("j", config, ["--dry-run"])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(stdout)["api_key_env"], "TYPESAFE_API_KEY")
+
+    def test_typesafe_no_key_or_state_in_out_or_meta(self):
+        self.ts_brief()
+        self.server.responses = [self.ts_ok({"p": {"type": "noul", "noul": 0.5}})]
+        code, stdout, stderr = self.ts_run()
+        self.assertEqual(code, 0, stderr)
+        for path in (self.out, self.out + ".meta.json"):
+            content = self.read(path)
+            self.assertNotIn(FAKE_KEY, content)
+            self.assertNotIn("SENTINEL", content)
+        self.assertNotIn("SENTINEL", stdout + stderr)
+
+    def test_typesafe_meta_has_resolved_model_and_hashes(self):
+        self.ts_brief({"b": {"type": "noul", "instructions": "q"}, "a": {"type": "noul", "instructions": "q2"}})
+        self.server.responses = [self.ts_ok({"a": {"type": "noul", "noul": 0.1}, "b": {"type": "noul", "noul": 0.9}})]
+        self.assertEqual(self.ts_run()[0], 0)
+        meta = json.loads(self.read(self.out + ".meta.json"))
+        canonical = json.dumps(self.TS_STATE, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        self.assertEqual(meta["resolved_model"], "jev-1.13.0")
+        self.assertEqual(meta["provider"], "typesafe")
+        self.assertEqual(meta["state_bytes"], len(canonical))
+        self.assertEqual(meta["state_sha256"], hashlib.sha256(canonical).hexdigest())
+        self.assertEqual(meta["question_ids"], ["a", "b"])
+        self.assertEqual(meta["usage"], {"input_tokens": 296, "output_tokens": 20})
+
+    def test_typesafe_dry_run_shows_pin_without_brief(self):
+        if os.path.exists(self.brief):
+            os.remove(self.brief)
+        os.environ["TEST_API_KEY"] = FAKE_KEY
+        config = self.write_config({"j": self.ts_target()})
+        code, stdout, stderr = self.run_tool("j", config, ["--dry-run"])
+        self.assertEqual(code, 0, stderr)
+        info = json.loads(stdout)
+        self.assertEqual(info["model_pin"], "jev-1.13.0")
+        self.assertEqual(info["url"], self.base + "/v1/systemone")
+        self.assertEqual(info["api_key"], "***")
+        self.assertNotIn("max_tokens", info)
+        self.assertEqual(info["timeout_seconds"], 30.0)
+        self.assertEqual(self.server.requests, [])
+
+    def test_api_key_env_with_a_trailing_newline_is_rejected(self):
+        for name in ("TEST_API_KEY\n", "TEST_API_KEY ", "test_api_key"):
+            with self.assertRaises(olympus_call.CallError):
+                olympus_call.resolve_target("j", {"j": self.ts_target(api_key_env=name)})
+
+    def test_typesafe_default_url(self):
+        target = olympus_call.resolve_target("j", {"j": {"adapter": "typesafe", "model": "jev-1.13.0"}})
+        self.assertEqual(target["url"], "https://api.typesafe.ai/v1/systemone")
+        self.assertEqual(target["api_key_env"], "TYPESAFE_API_KEY")
+
+    def test_typesafe_max_tokens_rejected(self):
+        self.ts_brief()
+        self.assertEqual(self.ts_run(extra=["--max-tokens", "100"])[0], 2)
+        code, _, _ = self.ts_run({"j": self.ts_target(max_tokens=100)})
+        self.assertEqual(code, 2)
+        self.assertEqual(self.server.requests, [])
 
     def test_entrypoint_dry_run_subprocess(self):
         config = self.write_config({"t": self.openai_target()})

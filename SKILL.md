@@ -75,9 +75,9 @@ Skip the panel only by citing a covering DECISION. A pattern a second card will 
 ## 5. Phases
 
 ### Phase 0. Intake
-1. Fill `docs/agents/templates/request-spec.md`; show it to the owner.
+1. Fill `docs/agents/templates/request-spec.md`; show it to the owner. The template is a host file, so two optional lines are added here: `jev: off | shadow | advisory` (default off) and `jev-content: ok | blocked` (default blocked; blocked if the topic touches money, authentication, tenant isolation or a threat model). The owner answers both. The President may lower `jev-content` to `blocked` at any time and never raises it without the owner (`references/jev.md`).
 2. Allocate the card with `kcard.py`. Epic worktree: `scripts/wt.sh new K-<n> feature/k-<n>-<slug>` (ceiling 12; raise `WT_MAX` only when the card allows). `mkdir -p /var/tmp/K-<n>-panel` (`$E`). The lead never `cd`s into a card worktree; agents get absolute paths.
-3. Pin `git rev-parse origin/dev` in the DECISION.md header with topic type (pack), exit type, tier, seat count and the out-of-scope list (for example: no restyle of untouched screens, no data changes).
+3. Pin `git rev-parse origin/dev` in the DECISION.md header with topic type (pack), exit type, tier, seat count and the out-of-scope list (for example: no restyle of untouched screens, no data changes), plus the `jev:` and `jev-content:` lines; `jev-sent:` (file names, sha256) is appended after phase 3. A card that cites an earlier DECISION appends its L3 rows here (`python3 tools/jev_steps.py label l3`).
 
 ### Phase 1. Evidence base
 The facts the decision depends on exist as rows before anyone proposes anything. The pack names the evidence base (UI: every screen and modal; architecture: the current-state map; security: assets, actors and entry points).
@@ -104,7 +104,7 @@ Seats own failure classes. Each pack lists its default seats; the risk skeptic (
 5. **Next version.** The President resolves every blocker in `PROPOSAL-v<N+1>.md`, settling seat conflicts explicitly; minors go to `ANNEX.md`.
 6. **Facts become spikes.** A round that mostly raises new facts becomes read-only spike cards with written output.
 7. **Halt** when AGREE is unanimous, or the blocker count is unchanged for 2 rounds, or at the budget (M 3, L 4, hard cap 8). Record each dissent (200 words, citing the risk) in DECISION.md and copy it into the handoff (`--decision`) so later panels can find it; take a supermajority: all but one seat (2 of 3, 4 of 5); with more dissent, do not close: bring the split to the owner gate as a question with a default.
-8. **Optional blind judging** only when R1 yields three or more materially different approaches: `references/arena-judging.md`.
+8. **Optional blind judging** only when R1 yields three or more materially different approaches: `references/arena-judging.md`. Jev, when `jev:` is shadow or advisory and `jev-content: ok`, meta-checks the verdicts and never gives a vote. After all verdicts are saved, write the ranking and base choice by blind code to `$E/jev/ruling.md` with `timestamp:` and `base: <code>` lines, then run `python3 tools/jev_steps.py j1 ...`; it prints `jev: skipped (<reason>)` (jev off, content blocked, tier S, no key, breaker, scan) or `UNAVAILABLE` and the flow continues. `judging-results.md` is written once, after the final Bradley-Terry refit. P never appears in it, in a vote, in `PROPOSAL-v<N>.md` or in DECISION.md: they hold only `jev: off|shadow|advisory|skipped (<reason>)|UNAVAILABLE` and flagged pair codes. Rules, flags and promotion: `references/jev.md`.
 9. **Lanes-and-edges table** in DECISION.md: card, family, files owned, shared files touched, helpers created, `after:`, strict. One owner per shared file and helper; cards touching the same shared file are serial. Example (UI): K-2021 extracted the atoms and K-2022, K-2023 and K-2024 build on them, so each starts after K-2021 merged.
 
 10. **Dry run.** Before the owner gate, the pack's skeptic or the delivery seat, as the pack names, replays the decision against one concrete past case or real item (UI: a real screen; architecture: a migration walk-through; security: an attack walk-through) and names the step that catches each known failure; every PARTIAL or MISSED becomes a blocker.
@@ -150,7 +150,7 @@ Reviewers write nothing in the PR worktree. The President saves every report ver
 3. **Verify on dev.** Merge commit: `scripts/ghx pr view <n> --json mergeCommit`. If the merge touches `supabase/migrations/`, `supabase/functions/`, `supabase/config.toml` or the edge-function config, `scripts/ghx run list --workflow 'Deploy to Dev' --commit <merge sha> --json status,conclusion` must show `completed` and `success` (in progress: re-read once per 5 minutes across turns, never a loop; a failure is a new card and a hotfix PR, never a silent pass). Otherwise there is no deploy run (path filter in `deploy-dev.yml`) and the observation is the pack's proof of done on `dev` (UI: the named click path, method in the pack). Without a way to observe it write `dev proof: NOT VERIFIED (<reason>)` in the handoff `--proof`, list it as an owner action, never write "verified". Put the merge commit, the run id (if any) and the evidence paths in `--proof`.
 4. **Cleanup.** Pane executors: `python3 .agents/skills/apollo-orchestration/fleet.py intake "K-<n> | VERDE | PR #<n> merged, <links> | <next>"` stops the worker and removes its tree (it keeps the worker and tree until the PR is merged). Trees made with `scripts/wt.sh` (the epic and `Agent` executors): `scripts/wt.sh done <path>` after the agent has finished. If either refuses, report why, never force.
 5. `python3 scripts/agents/handoff.py write --card K-<n> --request R --goal G --proof P --state S --pending X --trap X`. Traps are never empty without "checked: none". If it exits NO_VAULT, put the same fields in the PR body and report the blocker. Every new trap is appended to the standing bans in `references/executor-brief.md` before the next card.
-6. After the last card, a retrospective in the handoff: review rounds per card, mutants that found gaps, dissent that proved right; feed it into the tier rules and standing bans. Report "shipped to dev, verified green; promote?" Promotion is the owner's.
+6. After the last card, a retrospective in the handoff: review rounds per card, mutants that found gaps, dissent that proved right; feed it into the tier rules and standing bans. Report "shipped to dev, verified green; promote?" Promotion is the owner's. If `jev:` was on, add the L1 labels (`wrong` only, for verdicts involving the base; `python3 tools/jev_steps.py label l1`) and rework counts; the labeller never sees P.
 
 ## 6. Known failure → catching step
 
@@ -158,6 +158,7 @@ Reviewers write nothing in the PR worktree. The President saves every report ver
 |---|---|---|
 | Skipping the debate (K-2020: one agent wrote the proposal) | phase 0 tier rule; phase 3 exit; the DECISION excerpt and path required in every brief | `ls $B/r1-proposal-*.md \| wc -l` equals the header seat count and `test -s $B/DECISION.md` before dispatch; reviewer 1 BLOCKs unless the PR body links the DECISION path and `git cat-file -e <head>:<decision dir>/DECISION.md` succeeds (the planning PR merged first, phase 6 item 6; the check is skipped on the planning card's own PR, which adds the file). The card hook checks only the `TASK K-n` citation, so this is a President checklist item |
 | Parallel suites froze the machine; scratchpad wiped | rules 5 and 6; G0, G1, visual proof and mutants all under `preflight-lock.sh` | `bash scripts/preflight-lock.sh K-<n> -- <cmd>` (exit 75 = nothing ran); `pgrep -f "preflight\|vitest"` only as a pre-dispatch read; `$E/CHECKPOINT.md` outside every worktree |
+| Jev used as a vote, or to skip a judge, blocker or review | phase 3 item 8: ruling written first by blind code; no step depends on P; P kept out of every vote and file the team reads | `grep -nE 'P\(correct\)\|p_correct\|P=0\.[0-9]\|"p_(ab\|ba)"' $B/judging-results.md $B/r*-*.md $B/PROPOSAL-v*.md` prints nothing |
 | `.at()` broke the CI typecheck after two SHIPs | standing ban; G0; reviewer 1 re-runs G0 via the lock | `RATCHET_BASE_SHA=$(git rev-parse origin/dev) pnpm run typecheck:ratchet`; the `\.at\(` diff grep prints nothing |
 | `FLEET_*` env made the harness suite refuse | G1 | the preflight runs as `env $(env \| grep -oE '^(FLEET\|VOLDEMORT)_[A-Za-z0-9_]*' \| sed 's/^/-u /') bash scripts/preflight-lock.sh K-<n>`, one command, so no inherited variable reaches it |
 | Shared-file churn (UI harness cases file) forced re-reviews | phase 3 item 9 lanes table; phase 6 `after:` check; reviewer 1 lane BLOCK; update by merge | `git diff --name-only origin/dev...HEAD` against the lane row; delta-only re-review |
@@ -187,9 +188,10 @@ The default is native subagents (`Agent`), and nothing below is required. To run
 - **CLI targets** (`codex exec`, `claude -p`) run their own tools in their own sandbox and can read the repository. Keep them read-only for seats and reviewers.
 - **Mix families** for Arena judges and for reviewer 2: different training lineages reduce correlated errors (README section 7). The mutation reviewer still needs a live shell, so give reviewer 2 a CLI target, not an API target.
 - Never extract OAuth tokens from another tool's auth files. Use an API key from the environment or `.env`, or let the other CLI use its own login.
-- Sending code to a third-party provider is the owner's decision. Ask at the gate when the plan uses one, and record in the decision record which provider saw which files or bundles.
+- Sending code to a third-party provider is the owner's decision. Ask at phase 0 for Jev (`jev:` and `jev-content:`) and at the gate for any other provider the plan uses, and record in the decision record which provider saw which files or bundles.
+- **Jev is not a seat.** It is called only by `tools/jev_steps.py` (the J1 verdict meta-check) through the `typesafe` adapter, under the same data-sharing rule, and never gives a vote or removes a check.
 
-## References (12 files, one level deep)
+## References (13 files, one level deep)
 
 - `references/panel-brief-template.md`: fill-in brief for a panel seat (round 0, proposal and vote variants).
 - `references/arena-judging.md`: blind pairwise judging of competing candidates, with rubric, bias controls and aggregation.
@@ -199,6 +201,7 @@ The default is native subagents (`Agent`), and nothing below is required. To run
 - `references/kimi-review.md`: Kimi static-reviewer procedure, prompt, exit handling and Sonnet fallback.
 - `references/commands.md`: verified command sheet, the review-record skeleton and the `## Edges` checks.
 - `references/mockup-canvas.md`: real-screen-plus-delta artboards on the Design canvas (read by the UI pack).
+- `references/jev.md`: the optional Jev meta-check (ladder, consent, skip list, scan patterns, store, seeded calibration, promotion); `jev-questions.json`, `jev-canary.json` and the recipe `jev-seeds.md` sit beside it.
 - `references/evals.md`: replays and dry runs as pass/fail checks, run after any edit to this skill.
 - `references/domains/ui-redesign.md`: UI pack (evidence base, state table, acceptance, visual proof, dev click-path method).
 - `references/domains/architecture.md`: architecture pack (current-state map, ADR options, reversibility, fitness checks).

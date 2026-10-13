@@ -10,7 +10,7 @@ Targets live in a JSON config (default: olympus.providers.json, copy it from
 olympus.providers.example.json). Each target resolves to:
 
     {"adapter": "openai" | "anthropic" | "cli",
-     "model": "...",            # required for API adapters
+     "model": "...",            # required for API adapters (typesafe: a pinned jev-X.Y.Z)
      "provider": "...",         # optional label; for the openai adapter one of
                                 #   openai | openrouter | moonshot selects a default base_url and key
      "base_url": "...",         # optional override (Ollama, vLLM, DeepSeek, Groq, Together, ...)
@@ -18,6 +18,10 @@ olympus.providers.example.json). Each target resolves to:
      "command": [...],          # cli adapter only: argv list, brief goes on stdin
      "max_tokens": 8192,        # optional
      "max_tokens_param": "..."} # optional, openai adapter: "max_tokens" or "max_completion_tokens"
+
+The "typesafe" adapter calls Jev (TypeSafe System One). The brief file is JSON with exactly the
+keys "state" and "questions"; --out receives the validated response JSON. The model must be a
+pinned version (jev-<major>.<minor>.<patch>); aliases such as jev-latest are rejected.
 
 Exit codes: 0 ok, 2 config/usage error, 3 missing or malformed key, 4 provider error
 after retries (or an unexpected error), 5 CLI command failed.
@@ -37,6 +41,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import email.utils
+import hashlib
 import http.client
 import json
 import os
@@ -59,6 +64,7 @@ DEFAULT_CONFIG = "olympus.providers.json"
 DEFAULT_ENV = ".env"
 DEFAULT_MAX_TOKENS = 8192
 DEFAULT_TIMEOUT = 600.0
+TYPESAFE_TIMEOUT = 30.0
 MAX_ATTEMPTS = 3
 BACKOFF_BASE = 1.0  # seconds; attempt n waits BACKOFF_BASE * 2**(n-1) unless Retry-After is sent
 RETRY_AFTER_CAP = 60.0
@@ -87,11 +93,26 @@ ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com"
 ANTHROPIC_DEFAULT_KEY_ENV = "ANTHROPIC_API_KEY"
 ANTHROPIC_VERSION = "2023-06-01"
 
+# TypeSafe System One (Jev): POST https://api.typesafe.ai/v1/systemone, Bearer auth, body
+# {model, state, questions}; the answer is {model, answers: {id: {type, noul | choice, probabilities,
+# confidence | score, legend, probabilities}}, usage: {input_tokens, output_tokens}}. Question
+# limits: choice up to 255 options, score 2 to 10 levels. Pricing, the 64k-token request limit and
+# the jev-latest / jev-preview aliases are on https://docs.typesafe.ai/models.md; the contract is
+# https://docs.typesafe.ai/api.md (checked 2026-10-13). Aliases are never accepted here: they
+# move silently, and calibration is only valid for one resolved model.
+TYPESAFE_BASE_URL = "https://api.typesafe.ai"
+TYPESAFE_PATH = "/v1/systemone"
+TYPESAFE_KEY_ENV = "TYPESAFE_API_KEY"
+TYPESAFE_MODEL_RE = re.compile(r"^jev-[0-9]+\.[0-9]+\.[0-9]+$")
+TYPESAFE_MAX_BRIEF_BYTES = 100000  # proxy for the 32k-token state limit
+TYPESAFE_QUESTION_TYPES = ("noul", "choice", "score")
+TYPESAFE_PROB_TOLERANCE = 0.05
+
 KEY_ENV_RE = re.compile(r"^[A-Z0-9_]+_API_KEY$")
 ERROR_BODY_READ_LIMIT = 65536
 ERROR_TEXT_LIMIT = 500
 
-ADAPTERS = ("openai", "anthropic", "cli")
+ADAPTERS = ("openai", "anthropic", "cli", "typesafe")
 LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1")
 
 _SECRET_HEADER_RE = re.compile(
@@ -210,11 +231,15 @@ def resolve_target(name, targets, max_tokens_override=None):
     resolved = {
         "name": name,
         "adapter": adapter,
-        "provider": raw.get("provider") or ("anthropic" if adapter == "anthropic" else name),
+        "provider": raw.get("provider") or {"anthropic": "anthropic", "typesafe": "typesafe"}.get(adapter, name),
         "model": raw.get("model"),
         "max_tokens": max_tokens_override or raw.get("max_tokens") or DEFAULT_MAX_TOKENS,
     }
-    if not isinstance(resolved["max_tokens"], int) or resolved["max_tokens"] <= 0:
+    if adapter == "typesafe":
+        if max_tokens_override is not None or raw.get("max_tokens") is not None:
+            raise CallError(EXIT_USAGE, "target %r: the typesafe adapter has no max_tokens (output is typed and short)" % name)
+        resolved["max_tokens"] = None
+    elif not isinstance(resolved["max_tokens"], int) or resolved["max_tokens"] <= 0:
         raise CallError(EXIT_USAGE, "target %r: max_tokens must be a positive integer" % name)
 
     if adapter == "cli":
@@ -232,9 +257,20 @@ def resolve_target(name, targets, max_tokens_override=None):
     if not resolved["model"] or not isinstance(resolved["model"], str):
         raise CallError(EXIT_USAGE, 'target %r: "model" is required for the %s adapter' % (name, adapter))
 
+    if adapter == "typesafe" and not TYPESAFE_MODEL_RE.fullmatch(resolved["model"]):
+        raise CallError(
+            EXIT_USAGE,
+            "target %r: model must be a pinned version matching jev-<major>.<minor>.<patch>; aliases are never accepted" % name,
+        )
+
     base_url = raw.get("base_url")
     key_env = raw.get("api_key_env")
-    if adapter == "anthropic":
+    if adapter == "typesafe":
+        base_url = base_url or TYPESAFE_BASE_URL
+        key_env = key_env or TYPESAFE_KEY_ENV
+        resolved["key_required"] = True
+        resolved["path"] = TYPESAFE_PATH
+    elif adapter == "anthropic":
         base_url = base_url or ANTHROPIC_DEFAULT_BASE_URL
         key_env = key_env or ANTHROPIC_DEFAULT_KEY_ENV
         resolved["key_required"] = True
@@ -260,7 +296,7 @@ def resolve_target(name, targets, max_tokens_override=None):
             raise CallError(EXIT_USAGE, 'target %r: max_tokens_param must be "max_tokens" or "max_completion_tokens"' % name)
         resolved["max_tokens_param"] = param
 
-    if key_env is not None and (not isinstance(key_env, str) or not KEY_ENV_RE.match(key_env)):
+    if key_env is not None and (not isinstance(key_env, str) or not KEY_ENV_RE.fullmatch(key_env)):
         raise CallError(EXIT_USAGE, "target %r: api_key_env must match [A-Z0-9_]+_API_KEY" % name)
     try:
         parts = urllib.parse.urlsplit(base_url)
@@ -393,10 +429,125 @@ def _text_from_anthropic(data):
     return text
 
 
+def _is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == value
+
+
+def _nonempty(value):
+    if isinstance(value, str):
+        return bool(value.strip())
+    return isinstance(value, (dict, list)) and len(value) > 0
+
+
+def validate_typesafe_brief(brief_text):
+    """Validate a typesafe brief. Returns {"state": ..., "questions": ...}; raises exit 2."""
+    if len(brief_text.encode("utf-8")) > TYPESAFE_MAX_BRIEF_BYTES:
+        raise CallError(EXIT_USAGE, "brief is larger than %d bytes (the state limit is 32k tokens)" % TYPESAFE_MAX_BRIEF_BYTES)
+    try:
+        brief = json.loads(brief_text)
+    except ValueError:
+        raise CallError(EXIT_USAGE, "typesafe brief must be JSON with the keys state and questions")
+    if not isinstance(brief, dict) or set(brief) != {"state", "questions"}:
+        raise CallError(EXIT_USAGE, 'typesafe brief must have exactly the keys "state" and "questions"')
+    if not _nonempty(brief["state"]):
+        raise CallError(EXIT_USAGE, "typesafe brief: state must be a non-empty string, object or array")
+    questions = brief["questions"]
+    if not isinstance(questions, dict) or not questions:
+        raise CallError(EXIT_USAGE, "typesafe brief: questions must be a non-empty object")
+    for qid, question in questions.items():
+        where = "question %r" % qid
+        if not qid or not isinstance(question, dict):
+            raise CallError(EXIT_USAGE, "typesafe brief: %s must be an object with a non-empty id" % where)
+        if set(question) - {"type", "instructions", "criteria"}:
+            raise CallError(EXIT_USAGE, "typesafe brief: %s has unknown keys" % where)
+        qtype = question.get("type")
+        if qtype not in TYPESAFE_QUESTION_TYPES:
+            raise CallError(EXIT_USAGE, "typesafe brief: %s type must be one of %s" % (where, ", ".join(TYPESAFE_QUESTION_TYPES)))
+        if not _nonempty(question.get("instructions")):
+            raise CallError(EXIT_USAGE, "typesafe brief: %s needs non-empty instructions" % where)
+        criteria = question.get("criteria")
+        if qtype == "noul":
+            if criteria is not None and (not isinstance(criteria, dict) or not set(criteria) <= {"true", "false"}):
+                raise CallError(EXIT_USAGE, 'typesafe brief: %s criteria may only have "true" and "false"' % where)
+        elif qtype == "choice":
+            if not isinstance(criteria, dict) or not 1 <= len(criteria) <= 255:
+                raise CallError(EXIT_USAGE, "typesafe brief: %s needs 1 to 255 criteria" % where)
+        else:
+            if not isinstance(criteria, list) or not 2 <= len(criteria) <= 10:
+                raise CallError(EXIT_USAGE, "typesafe brief: %s needs a criteria list of 2 to 10 levels" % where)
+    return brief
+
+
+def _canonical_state(state):
+    return json.dumps(state, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def _check_probabilities(probs, allowed, where):
+    if not isinstance(probs, dict) or not probs:
+        raise CallError(EXIT_PROVIDER, "malformed answer: %s has no probabilities" % where)
+    total = 0.0
+    for name, value in probs.items():
+        if str(name) not in allowed or not _is_number(value) or not 0 <= value <= 1:
+            raise CallError(EXIT_PROVIDER, "malformed answer: %s has an invalid probability" % where)
+        total += value
+    if abs(total - 1.0) > TYPESAFE_PROB_TOLERANCE:
+        raise CallError(EXIT_PROVIDER, "malformed answer: %s probabilities sum to %.3f" % (where, total))
+
+
+def _text_from_typesafe(data, payload):
+    """Validate a System One response against the request; return (json text, extra meta)."""
+    if not isinstance(data, dict):
+        raise CallError(EXIT_PROVIDER, "unexpected response shape (not an object)")
+    if data.get("model") != payload["model"]:
+        raise CallError(
+            EXIT_PROVIDER,
+            "model_mismatch: requested %s, response says %s" % (payload["model"], str(data.get("model"))[:60]),
+        )
+    answers = data.get("answers")
+    questions = payload["questions"]
+    if not isinstance(answers, dict) or set(answers) != set(questions):
+        raise CallError(EXIT_PROVIDER, "malformed answer: answer ids differ from the requested question ids")
+    for qid, question in questions.items():
+        answer = answers[qid]
+        where = "answer %r" % qid
+        if not isinstance(answer, dict) or answer.get("type") != question["type"]:
+            raise CallError(EXIT_PROVIDER, "malformed answer: %s has the wrong type" % where)
+        if question["type"] == "noul":
+            value = answer.get("noul")
+            if not _is_number(value) or not 0 <= value <= 1:
+                raise CallError(EXIT_PROVIDER, "malformed answer: %s noul is not a number in [0, 1]" % where)
+        elif question["type"] == "choice":
+            criteria = question["criteria"]
+            if answer.get("choice") not in criteria:
+                raise CallError(EXIT_PROVIDER, "malformed answer: %s choice is not one of the criteria" % where)
+            _check_probabilities(answer.get("probabilities"), set(criteria), where)
+        else:
+            levels = question["criteria"]
+            value = answer.get("score")
+            if not _is_number(value) or not 0 <= value <= len(levels) - 1:
+                raise CallError(EXIT_PROVIDER, "malformed answer: %s score is outside the levels" % where)
+            expected = {str(i): level for i, level in enumerate(levels)}
+            if answer.get("legend") != expected:
+                raise CallError(EXIT_PROVIDER, "malformed answer: %s legend does not match the criteria" % where)
+            _check_probabilities(answer.get("probabilities"), set(expected), where)
+    state_bytes = _canonical_state(payload["state"])
+    extra = {
+        "resolved_model": data["model"],
+        "state_bytes": len(state_bytes),
+        "state_sha256": hashlib.sha256(state_bytes).hexdigest(),
+        "question_ids": sorted(questions),
+    }
+    return json.dumps(data, indent=2, sort_keys=True) + "\n", extra
+
+
 def build_request(target, brief_text, key):
     """Return (url, headers, payload) for an API adapter."""
     headers = {}
-    if target["adapter"] == "anthropic":
+    if target["adapter"] == "typesafe":
+        brief = validate_typesafe_brief(brief_text)
+        headers["Authorization"] = "Bearer " + key
+        payload = {"model": target["model"], "state": brief["state"], "questions": brief["questions"]}
+    elif target["adapter"] == "anthropic":
         headers["x-api-key"] = key
         headers["anthropic-version"] = ANTHROPIC_VERSION
         payload = {
@@ -416,14 +567,18 @@ def build_request(target, brief_text, key):
 
 
 def call_api(target, brief_text, key, timeout, retry_timeouts=False):
+    """Returns (text, usage, attempts, extra meta)."""
     url, headers, payload = build_request(target, brief_text, key)
     data, attempts = http_post_json(url, headers, payload, timeout, [key], retry_timeouts)
-    if target["adapter"] == "anthropic":
+    extra = {}
+    if target["adapter"] == "typesafe":
+        text, extra = _text_from_typesafe(data, payload)
+    elif target["adapter"] == "anthropic":
         text = _text_from_anthropic(data)
     else:
         text = _text_from_openai(data)
     usage = data.get("usage") if isinstance(data, dict) and isinstance(data.get("usage"), dict) else None
-    return text, usage, attempts
+    return text, usage, attempts, extra
 
 
 def call_cli(target, brief_text, timeout, secrets):
@@ -475,15 +630,20 @@ def describe_dry_run(target, key, config_path, env_path, env_found):
         "adapter": target["adapter"],
         "provider": target["provider"],
         "model": target["model"],
-        "max_tokens": target["max_tokens"],
     }
+    if target["max_tokens"] is not None:
+        info["max_tokens"] = target["max_tokens"]
+    if target["adapter"] == "typesafe":
+        info["model_pin"] = target["model"]
+        info["model_pin_pattern"] = TYPESAFE_MODEL_RE.pattern
+        info["timeout_seconds"] = TYPESAFE_TIMEOUT
     if target["adapter"] == "cli":
         info["command"] = target["command"]
     else:
         info["url"] = target["url"]
         if target["adapter"] == "openai":
             info["max_tokens_param"] = target["max_tokens_param"]
-        else:
+        elif target["adapter"] == "anthropic":
             info["max_tokens_param"] = "max_tokens"
         info["api_key_env"] = target["api_key_env"]
         if not target["key_required"]:
@@ -504,7 +664,7 @@ def build_parser():
     parser.add_argument("--config", default=None, help="providers config (default: %s in the repository root, never the cwd)" % DEFAULT_CONFIG)
     parser.add_argument("--env", default=None, help="optional KEY=VALUE file with API keys (default: %s in the repository root, never the cwd)" % DEFAULT_ENV)
     parser.add_argument("--max-tokens", type=int, default=None, help="output token cap (default: config value or %d)" % DEFAULT_MAX_TOKENS)
-    parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT, help="per-request timeout in seconds (default: %(default)s)")
+    parser.add_argument("--timeout", type=float, default=None, help="per-request timeout in seconds (default: %d, typesafe: %d)" % (DEFAULT_TIMEOUT, TYPESAFE_TIMEOUT))
     parser.add_argument("--retry-timeouts", action="store_true", help="also retry requests that time out (default: no, a hung provider may still bill)")
     parser.add_argument("--dry-run", action="store_true", help="print the resolved target and URL, send nothing")
     return parser
@@ -514,12 +674,15 @@ def run(args, secrets):
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if args.max_tokens is not None and args.max_tokens <= 0:
         raise CallError(EXIT_USAGE, "--max-tokens must be positive")
-    if args.timeout <= 0:
+    if args.timeout is not None and args.timeout <= 0:
         raise CallError(EXIT_USAGE, "--timeout must be positive")
 
     config_path = args.config if args.config else os.path.join(repo_root, DEFAULT_CONFIG)
     targets = load_config(config_path)
     target = resolve_target(args.target, targets, args.max_tokens)
+    timeout = args.timeout
+    if timeout is None:
+        timeout = TYPESAFE_TIMEOUT if target["adapter"] == "typesafe" else DEFAULT_TIMEOUT
 
     env_values = {}
     env_path = args.env if args.env else os.path.join(repo_root, DEFAULT_ENV)
@@ -559,10 +722,11 @@ def run(args, secrets):
     started = time.monotonic()
     usage = None
     attempts = 1
+    extra = {}
     if target["adapter"] == "cli":
-        text = call_cli(target, brief_text, args.timeout, [])
+        text = call_cli(target, brief_text, timeout, [])
     else:
-        text, usage, attempts = call_api(target, brief_text, key, args.timeout, args.retry_timeouts)
+        text, usage, attempts, extra = call_api(target, brief_text, key, timeout, args.retry_timeouts)
     latency = round(time.monotonic() - started, 3)
 
     meta = {
@@ -581,6 +745,7 @@ def run(args, secrets):
         meta["command"] = target["command"][0]
     else:
         meta["base_url"] = target["base_url"]
+    meta.update(extra)  # typesafe: resolved_model, state_bytes, state_sha256, question_ids (never state text)
     _write_text(args.out, text)
     _write_text(args.out + ".meta.json", json.dumps(meta, indent=2) + "\n")
     print("ok: %s via %s/%s -> %s (%.1fs)" % (target["name"], target["adapter"], target["model"] or "-", args.out, latency))

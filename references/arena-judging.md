@@ -4,7 +4,7 @@ Purpose: blind pairwise judging of competing candidates, with rubric, bias contr
 
 ## Blinding
 - The President copies each `r1-proposal-<seat>.md` to `blind/C-<code>.md`, where `<code>` is a random 3-letter code. Seat names, model names and self-references are redacted to `[seat]`.
-- The code to seat map is held outside the decision directory until all verdicts are in, then published in `judging-results.md`.
+- The code to seat map is held outside the decision directory until all verdicts are in, then published in `judging-results.md`, which is written once, after the final Bradley-Terry refit, with both rankings if they differ (see the Jev meta-check below).
 - Judges read only `blind/`. Opening the unblinded files before submitting is a protocol breach.
 
 ## Assignment
@@ -40,11 +40,19 @@ The weighted score is sum(score x weight)/5, so the maximum is 100.
 ## Aggregation
 The President computes win rates and a Bradley-Terry ranking, with ties counted as half a win each way, plus the mean weighted score. The top candidate becomes the base for synthesis. The STEAL lines become the merge list.
 
+## Advisory meta-check (Jev), optional
+Only when `jev:` is shadow or advisory and `jev-content: ok` (SKILL.md phase 0); full rules in `references/jev.md`. Jev adds scrutiny and never removes any.
+1. After all verdicts are saved, the President writes the ranking and base choice by blind code to `$E/jev/ruling.md` with `timestamp:` and `base: <code>` lines. `tools/jev_steps.py j1` refuses to run before that, so P cannot anchor the ruling.
+2. Each non-tie verdict is sent to Jev as "is this verdict correct?" with the rubric, the verdict block and both candidates, in both orders (the second order swaps the candidates and relabels the verdict's `PAIR`, `SCORES` and `WINNER` lines). P is the mean of the two; `|P_AB - P_BA|` is logged. Ties are never sent.
+3. ADVISORY only: a pair is flagged when both twins agree and the lower P is below the calibrated action threshold, or when either verdict's order gap exceeds 0.20. A flagged pair gets one more blind judgment from a Sonnet or Opus non-author who has not judged it, in a random recorded order (cap 3 per Arena). Refit Bradley-Terry with and without those judgments; if the top differs, publish both rankings and rule on the base. Jev adds no comparison and no weight.
+4. P and ledger rows stay out of `judging-results.md`, votes and DECISION.md; they hold only `jev: off|shadow|advisory|skipped (<reason>)|UNAVAILABLE` and flagged pair codes.
+
 ## Corrections learned in K-2036 round 2
 - Recompute every block's weighted score from its six criterion scores on the 0 to 100 scale; the winner is the higher score, and a gap of 2 points or less is a tie.
 - A candidate that names a tool, script or flag that does not exist scores safety 2 or lower, and the block names the invented item.
 - Fact checks (does the tool exist, is the claim sourced) go to a deterministic step or a Sonnet or Opus judge, never to a light-tier judge: in that round the Sonnet judges caught every invented tool and the light-tier judges missed them.
 - Read the judges' blocks for protocol errors (wrong scale, abstaining on a pair that is not the judge's own) and have the judge redo them.
+- Jev as a judge was tried and rejected: in the live Arena its winner was the same in both orders for 3/6 pairs, and its three consistent picks favoured the proposal every seat ranked last. Jev may only meta-check verdicts.
 
 ## Sources (what each contributed)
 - Chiang et al., Chatbot Arena, https://arxiv.org/abs/2403.04132: pairwise ranking with Bradley-Terry and position randomisation.

@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "question_wording": "j1-v2",
+  "purpose": "Three frozen synthetic states, re-asked at the start of every Jev-enabled Arena. Drift beyond the tolerance, or a changed pin or question hash, demotes J1 to SHADOW (references/jev.md).",
+  "tolerance": 0.05,
+  "tolerance_rule": "max(0.05, 3 standard deviations of one input repeated; the spike belongs to the adapter card). Until baselines are recorded the canary only records its answers.",
+  "baseline_recorded_for": {
+    "resolved_model": null,
+    "question_sha256": null
+  },
+  "baseline_note": "Baselines are null: no live call was made when this file was written. Fill them from the first shadow run (`baseline` per state plus the resolved model and question hash above); that edit is a reviewed change.",
+  "states": [
+    {
+      "id": "canary-correct",
+      "expected_direction": "high",
+      "state": {
+        "rubric": "Correctness [100]: score 1 to 5. A candidate that names a command, flag or file that does not exist scores 1.",
+        "verdict": "PAIR: P-AAA (A) vs P-BBB (B)\nSCORES A: c=5 | weighted=100\nSCORES B: c=1 | weighted=20\nWINNER: A",
+        "candidate_A": "Question: Which git command lists the files changed by the last commit?\n`git show --name-only HEAD` prints the paths changed by the most recent commit.",
+        "candidate_B": "Question: Which git command lists the files changed by the last commit?\n`git list-changed --last` prints the paths changed by the most recent commit."
+      },
+      "state_sha256": "33822a3bf27c7b2f60e8988c381a3e5fd1f286aad1e1e0f7df19810312b22c6e",
+      "baseline": null
+    },
+    {
+      "id": "canary-wrong",
+      "expected_direction": "low",
+      "state": {
+        "rubric": "Correctness [100]: score 1 to 5. A candidate that names a command, flag or file that does not exist scores 1.",
+        "verdict": "PAIR: P-AAA (A) vs P-BBB (B)\nSCORES A: c=1 | weighted=20\nSCORES B: c=5 | weighted=100\nWINNER: B",
+        "candidate_A": "Question: Which git command lists the files changed by the last commit?\n`git show --name-only HEAD` prints the paths changed by the most recent commit.",
+        "candidate_B": "Question: Which git command lists the files changed by the last commit?\n`git list-changed --last` prints the paths changed by the most recent commit."
+      },
+      "state_sha256": "0735dce484b55079ac97f121769631e80e8b8ff3900cefe51c4549f906f897a2",
+      "baseline": null
+    },
+    {
+      "id": "canary-close",
+      "expected_direction": "mid",
+      "state": {
+        "rubric": "Correctness [100]: score 1 to 5. A candidate that names a command, flag or file that does not exist scores 1.",
+        "verdict": "PAIR: P-AAA (A) vs P-BBB (B)\nSCORES A: c=5 | weighted=100\nSCORES B: c=4 | weighted=80\nWINNER: A",
+        "candidate_A": "Question: Which git command lists the files changed by the last commit?\n`git show --name-only HEAD` prints the paths changed by the most recent commit.",
+        "candidate_B": "Question: Which git command lists the files changed by the last commit?\n`git diff --name-only HEAD~1 HEAD` prints the paths changed between the previous commit and the last one."
+      },
+      "state_sha256": "8fde90e7e2e2254e026c14722fd02d6518d1ce513bc41aaedd7573c9a78d96f7",
+      "baseline": null
+    }
+  ]
+}
