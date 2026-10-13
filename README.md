@@ -164,6 +164,30 @@ references/               panel and executor briefs, judging protocol, reviewer 
 references/domains/       domain packs
 ```
 
+### Optional: Jev (TypeSafe)
+
+Olympus does **not** require Jev. Everything above works without it.
+
+[Jev](https://docs.typesafe.ai/introduction) is a decision model, not a text generator. You define the possible answers, and it returns typed answers with probabilities, as a Choice, a Score or a Noul (a yes/no probability). Several questions run in parallel in one call. That makes it a candidate for the narrow, typed judgments inside the panel process:
+
+| Candidate step | Jev question | Why |
+|---|---|---|
+| Arena, as an extra judge | Choice per rubric criterion, asked twice with positions swapped | a judge from a different model family weakens the correlated-judge limitation (§7) |
+| Blocker triage | Noul: "does this BLOCK name a location, a disputed claim and a replacement?" | enforces falsifiable blockers (P4) cheaply; low-confidence cases go to the chair |
+| Stop rule | Score: how materially draft *n+1* differs from draft *n* | a cheap form of semantic early stopping (P6) |
+| Pre-mortem cross-check | Choice: CAUGHT / PARTIAL / MISSED per failure row | a second opinion beside the seat that runs the dry run |
+| Reviewer over-flagging | Noul: "does this BLOCK carry a command output, failing test or surviving mutant?" | keeps P9's evidence rule mechanical |
+
+**Status: experimental, not yet wired into `SKILL.md`.** These steps are proposals. They will be validated in shadow mode against the labelled record of the case study (§4) before any of them becomes part of the process. Fact checks ("does this tool exist?"), code review, mutation testing and synthesis stay with commands and reasoning models. As TypeSafe's own guidance puts it, typed output guarantees the interface, not truth.
+
+To try it:
+
+```
+cp .env.example .env        # .env is git-ignored; never commit it
+# edit .env and set TYPESAFE_API_KEY
+pip install typesafe-sdk    # or: uv add typesafe-sdk
+```
+
 ---
 
 ## 7. Limitations and threats to validity
