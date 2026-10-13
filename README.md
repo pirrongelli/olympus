@@ -39,3 +39,7 @@ Copy this directory into your agent's skills folder: for example `.claude/skills
 Olympus was written for one repository's agent harness. Its commands name that harness's scripts: a worktree manager, a machine-wide test lock, a review-record verifier, a GitHub CLI wrapper, an evidence checker and a fleet dispatcher. `references/commands.md` lists every one of them with its flags.
 
 Before you use Olympus in another project, map each command to your own equivalent or remove it. Placeholders such as `<your probe runner>` mark the places to adapt.
+
+## License
+
+MIT. See `LICENSE`.
