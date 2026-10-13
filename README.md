@@ -188,6 +188,30 @@ cp .env.example .env        # .env is git-ignored; never commit it
 pip install typesafe-sdk    # or: uv add typesafe-sdk
 ```
 
+### Optional: other model providers
+
+Olympus does **not** require this either. By default every seat, judge and reviewer is a native subagent of the host agent. If you want some of them on a different model family (an Arena judge, reviewer 2, an extra seat), `tools/olympus_call.py` sends a brief file to one configured target and writes the answer to a file. It is one script, Python 3.9+, standard library only.
+
+| Adapter | Providers | Notes |
+|---|---|---|
+| `openai` | OpenAI, OpenRouter, Moonshot (Kimi), and any OpenAI-compatible server through `base_url` (Ollama, vLLM, DeepSeek, Groq, Together) | `POST {base_url}/chat/completions`, Bearer key; Ollama needs no key |
+| `anthropic` | Anthropic API | `POST {base_url}/v1/messages`, `x-api-key` and `anthropic-version` headers |
+| `cli` | `codex exec`, `claude -p`, any command that reads a prompt on stdin | no shell: an argv list; the CLI may use its own tools and its own login |
+
+Setup:
+
+```
+cp olympus.providers.example.json olympus.providers.json   # git-ignored; edit models and targets
+cp .env.example .env                                       # git-ignored; set only the keys you use
+python3 tools/olympus_call.py --target kimi --brief brief.md --out out.md --dry-run
+python3 tools/olympus_call.py --target kimi --brief brief.md --out out.md
+python3 -m unittest tools/test_olympus_call.py             # offline tests
+```
+
+Replace every `<placeholder>` model id with one from the provider's own model list; the example file does not pin ids it could not verify. Keys come from the process environment first, then from `.env`, and are never printed or written to the output or its `.meta.json`. Requests make up to 3 attempts (2 retries) on 429, 5xx and connection errors; a request that times out is not retried, because a hung provider may still be generating and billing (add `--retry-timeouts` to opt in). `--config` and `--env` default to files in the repository root, never the current directory, and `api_key_env` names must look like `SOMETHING_API_KEY`. API targets cannot use tools, so the chair pastes the evidence into the brief; CLI targets can. Mixing model families weakens the correlated-judge limitation ([§7](#7-limitations-and-threats-to-validity)).
+
+**Data sharing:** a brief sent to a non-host provider leaves your machine and may contain source code or other confidential material. Whether a given repository may be sent to a given provider is your decision, and the process records which provider saw what. Never copy OAuth tokens out of another tool's auth files; use an API key or that tool's own login.
+
 ---
 
 ## 7. Limitations and threats to validity

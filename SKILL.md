@@ -177,6 +177,18 @@ Reviewers write nothing in the PR worktree. The President saves every report ver
 - **Never scale away:** the card, `TASK K-<n>` in every dispatch, the owner gate for any new pattern, one independent review at least, exact-head evidence, the pinned merge.
 - After editing this skill, replay the dry run (`references/evals.md`): walk the modal rollout (UI), an architecture decision and a security decision through the phases and name the catching step for each known failure.
 
+## Running seats on other providers (optional)
+
+The default is native subagents (`Agent`), and nothing below is required. To run a panel seat, an Arena judge or a reviewer on another model family, call it through `tools/olympus_call.py` (Python standard library only; setup in the README, "Optional: other model providers").
+
+`python3 tools/olympus_call.py --target <name> --brief <file> --out <file> [--dry-run]` resolves `<name>` in `olympus.providers.json`, sends the brief file, writes the answer to `--out` and a `<out>.meta.json` (provider, model, latency, usage, timestamp). Run `--dry-run` first: it prints the URL and whether the key is set, and sends nothing. Exit codes: 0 ok, 2 config, 3 missing or malformed key, 4 provider error, 5 CLI failure. Timeouts are not retried (the provider may still bill); `--retry-timeouts` opts in. Launch it as a tracked background task like any other seat (ground rule 3) and read `--out` when it lands.
+
+- **API targets** (`openai`, `anthropic` adapters) cannot use tools or read files. The President pastes the evidence bundle into the brief, and the seat returns its file content as text; the President saves it as the seat's file.
+- **CLI targets** (`codex exec`, `claude -p`) run their own tools in their own sandbox and can read the repository. Keep them read-only for seats and reviewers.
+- **Mix families** for Arena judges and for reviewer 2: different training lineages reduce correlated errors (README section 7). The mutation reviewer still needs a live shell, so give reviewer 2 a CLI target, not an API target.
+- Never extract OAuth tokens from another tool's auth files. Use an API key from the environment or `.env`, or let the other CLI use its own login.
+- Sending code to a third-party provider is the owner's decision. Ask at the gate when the plan uses one, and record in the decision record which provider saw which files or bundles.
+
 ## References (12 files, one level deep)
 
 - `references/panel-brief-template.md`: fill-in brief for a panel seat (round 0, proposal and vote variants).

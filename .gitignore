@@ -2,3 +2,9 @@
 .env
 .env.*
 !.env.example
+
+# Local copy of the provider targets (copy olympus.providers.example.json); keys stay in .env or the environment
+olympus.providers.json
+
+# Python bytecode
+__pycache__/
