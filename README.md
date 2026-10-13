@@ -122,6 +122,10 @@ Olympus's own `SKILL.md` was produced by the process it describes. The record be
 3. **Unvoted edits regress.** In round 5 the chair made three quick fixes between votes. All three were found defective in round 6. After that, every substantive edit went to a vote.
 4. **Most defects lived at the tool boundary.** Wrong flags, path filters, launcher contracts and lock semantics. These are exactly what a text-only review misses and an executing reviewer catches. This supports P9.
 
+### Case study 2: Jev integration
+
+A second, smaller panel used Olympus to decide whether and how to integrate the Jev decision model, with Jev running live in the Arena. As a meta-judge of verdicts, Jev flagged exactly the two most ambiguous verdicts. As a judge it was order-inconsistent, and it favoured the proposal every seat ranked last, so the panel dropped that role. The full record, with metrics only, is in [`case-studies/jev-integration/`](case-studies/jev-integration/README.md).
+
 ---
 
 ## 5. Domain packs

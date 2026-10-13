@@ -1,0 +1,338 @@
+{
+ "note": "Blind Arena of the Jev-integration panel. Candidate codes are random; 'author_seat' was revealed after judging. No proposal or verdict text is included.",
+ "candidates": {
+  "FSF": {
+   "author_seat": "A",
+   "role": "calibration"
+  },
+  "OYG": {
+   "author_seat": "B",
+   "role": "integration"
+  },
+  "RII": {
+   "author_seat": "C",
+   "role": "process"
+  },
+  "RGQ": {
+   "author_seat": "D",
+   "role": "red team"
+  }
+ },
+ "seat_verdicts": [
+  {
+   "judge": "A",
+   "A": "OYG",
+   "B": "RII",
+   "winner": "OYG",
+   "p_correct": 0.68
+  },
+  {
+   "judge": "A",
+   "A": "OYG",
+   "B": "RGQ",
+   "winner": "RGQ",
+   "p_correct": 0.69
+  },
+  {
+   "judge": "A",
+   "A": "RII",
+   "B": "RGQ",
+   "winner": "RGQ",
+   "p_correct": 0.7
+  },
+  {
+   "judge": "B",
+   "A": "FSF",
+   "B": "RII",
+   "winner": "RII",
+   "p_correct": 0.64
+  },
+  {
+   "judge": "B",
+   "A": "FSF",
+   "B": "RGQ",
+   "winner": "RGQ",
+   "p_correct": 0.72
+  },
+  {
+   "judge": "B",
+   "A": "RGQ",
+   "B": "RII",
+   "winner": "tie",
+   "p_correct": 0.45
+  },
+  {
+   "judge": "C",
+   "A": "FSF",
+   "B": "OYG",
+   "winner": "OYG",
+   "p_correct": 0.59
+  },
+  {
+   "judge": "C",
+   "A": "RGQ",
+   "B": "FSF",
+   "winner": "RGQ",
+   "p_correct": 0.66
+  },
+  {
+   "judge": "C",
+   "A": "RGQ",
+   "B": "OYG",
+   "winner": "RGQ",
+   "p_correct": 0.48
+  },
+  {
+   "judge": "D",
+   "A": "OYG",
+   "B": "FSF",
+   "winner": "OYG",
+   "p_correct": 0.69
+  },
+  {
+   "judge": "D",
+   "A": "RII",
+   "B": "FSF",
+   "winner": "RII",
+   "p_correct": 0.6
+  },
+  {
+   "judge": "D",
+   "A": "RII",
+   "B": "OYG",
+   "winner": "OYG",
+   "p_correct": 0.54
+  }
+ ],
+ "jev_judge": [
+  {
+   "first": "FSF",
+   "second": "OYG",
+   "winner": "FSF",
+   "confidence": 0.41,
+   "probabilities": {
+    "first": 0.61,
+    "second": 0.36,
+    "tie": 0.03
+   }
+  },
+  {
+   "first": "OYG",
+   "second": "FSF",
+   "winner": "FSF",
+   "confidence": 0.43,
+   "probabilities": {
+    "first": 0.36,
+    "second": 0.62,
+    "tie": 0.02
+   }
+  },
+  {
+   "first": "FSF",
+   "second": "RGQ",
+   "winner": "FSF",
+   "confidence": 0.3,
+   "probabilities": {
+    "first": 0.53,
+    "second": 0.45,
+    "tie": 0.02
+   }
+  },
+  {
+   "first": "RGQ",
+   "second": "FSF",
+   "winner": "FSF",
+   "confidence": 0.48,
+   "probabilities": {
+    "first": 0.33,
+    "second": 0.65,
+    "tie": 0.02
+   }
+  },
+  {
+   "first": "FSF",
+   "second": "RII",
+   "winner": "FSF",
+   "confidence": 0.4,
+   "probabilities": {
+    "first": 0.6,
+    "second": 0.38,
+    "tie": 0.02
+   }
+  },
+  {
+   "first": "RII",
+   "second": "FSF",
+   "winner": "FSF",
+   "confidence": 0.55,
+   "probabilities": {
+    "first": 0.29,
+    "second": 0.7,
+    "tie": 0.01
+   }
+  },
+  {
+   "first": "OYG",
+   "second": "RGQ",
+   "winner": "RGQ",
+   "confidence": 0.28,
+   "probabilities": {
+    "first": 0.47,
+    "second": 0.52,
+    "tie": 0.01
+   }
+  },
+  {
+   "first": "RGQ",
+   "second": "OYG",
+   "winner": "OYG",
+   "confidence": 0.25,
+   "probabilities": {
+    "first": 0.48,
+    "second": 0.5,
+    "tie": 0.02
+   }
+  },
+  {
+   "first": "OYG",
+   "second": "RII",
+   "winner": "RII",
+   "confidence": 0.43,
+   "probabilities": {
+    "first": 0.36,
+    "second": 0.62,
+    "tie": 0.02
+   }
+  },
+  {
+   "first": "RII",
+   "second": "OYG",
+   "winner": "OYG",
+   "confidence": 0.22,
+   "probabilities": {
+    "first": 0.44,
+    "second": 0.48,
+    "tie": 0.08
+   }
+  },
+  {
+   "first": "RGQ",
+   "second": "RII",
+   "winner": "RII",
+   "confidence": 0.41,
+   "probabilities": {
+    "first": 0.38,
+    "second": 0.61,
+    "tie": 0.01
+   }
+  },
+  {
+   "first": "RII",
+   "second": "RGQ",
+   "winner": "RGQ",
+   "confidence": 0.49,
+   "probabilities": {
+    "first": 0.33,
+    "second": 0.66,
+    "tie": 0.01
+   }
+  }
+ ],
+ "flagged_p_below_0_5": [
+  [
+   "B",
+   "RGQ",
+   "RII",
+   0.45
+  ],
+  [
+   "C",
+   "RGQ",
+   "OYG",
+   0.48
+  ]
+ ],
+ "disagreements": [
+  {
+   "pair": "RGQ|RII",
+   "verdicts": [
+    [
+     "A",
+     "RGQ",
+     0.7
+    ],
+    [
+     "B",
+     "tie",
+     0.45
+    ]
+   ],
+   "resolved_to": "RGQ"
+  }
+ ],
+ "bradley_terry": {
+  "unweighted": {
+   "RGQ": 2.95204158585218,
+   "OYG": 0.8097052788754681,
+   "RII": 0.22984870684360167,
+   "FSF": 0.008404428428750197
+  },
+  "jev_weighted": {
+   "RGQ": 3.037928033326555,
+   "OYG": 0.7580301121412208,
+   "RII": 0.19245888868328154,
+   "FSF": 0.011582965848942963
+  },
+  "with_jev_as_judge": {
+   "RGQ": 1.4104316904110852,
+   "FSF": 0.964800248083415,
+   "OYG": 0.964800248083415,
+   "RII": 0.6599678134220851
+  }
+ },
+ "jev_shadow_on_approvals": {
+  "3": [
+   {
+    "seat": "A",
+    "vote": "AGREE",
+    "p_correct": 0.48
+   },
+   {
+    "seat": "B",
+    "vote": "AGREE",
+    "p_correct": 0.48
+   },
+   {
+    "seat": "C",
+    "vote": "AGREE",
+    "p_correct": 0.45
+   },
+   {
+    "seat": "D",
+    "vote": "BLOCK"
+   }
+  ],
+  "5": [
+   {
+    "seat": "A",
+    "vote": "AGREE",
+    "p_correct": 0.47
+   },
+   {
+    "seat": "B",
+    "vote": "AGREE",
+    "p_correct": 0.55
+   },
+   {
+    "seat": "C",
+    "vote": "AGREE",
+    "p_correct": 0.5
+   },
+   {
+    "seat": "D",
+    "vote": "AGREE",
+    "p_correct": 0.24
+   }
+  ]
+ }
+}
